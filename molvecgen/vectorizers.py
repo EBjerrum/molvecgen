@@ -6,14 +6,14 @@ class SmilesVectorizer(object):
     """SMILES vectorizer and devectorizer, with support for SMILES enumeration (atom order randomization)
     as data augmentation
     
-    #Arguments
-        charset: string containing the characters for the vectorization
+    :parameter charset: string containing the characters for the vectorization
           can also be generated via the .fit() method
-        pad: Length of the vectorization
-        leftpad: Add spaces to the left of the SMILES
-        isomericSmiles: Generate SMILES containing information about stereogenic centers
-        augment: Enumerate the SMILES during transform
-        canonical: use canonical SMILES during transform (overrides enum)
+    :parameter pad: Length of the vectorization
+    :parameter leftpad: Add spaces to the left of the SMILES
+    :parameter isomericSmiles: Generate SMILES containing information about stereogenic centers
+    :parameter augment: Enumerate the SMILES during transform
+    :parameter canonical: use canonical SMILES during transform (overrides enum)
+    :parameter binary: Use RDKit binary strings instead of molecule objects
     """
     def __init__(self, charset = '@C)(=cOn1S2/H[N]\\', pad=5, maxlength=120, leftpad=True, isomericSmiles=True, augment=True, canonical=False, startchar = '^', endchar = '$', unknownchar = '?', binary=False):
         #Special Characters
@@ -251,7 +251,7 @@ class MorganDictVectorizer(object):
             return arr
     
     def transform(self, mols, misses=False):
-        """Transforms a list or array of RDKit molecules into a dense array
+        """Transforms a list or array of RDKit molecules into a dense array using the key dictionary (see .fit())
         
         :parameter mols: list or array of RDKit molecules
         :parameter misses: Wheter to return the number of key misses for each molecule
