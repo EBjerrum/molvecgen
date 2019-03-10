@@ -176,36 +176,6 @@ class SmilesVectorizer(object):
 from rdkit import DataStructs
 from rdkit.Chem import AllChem
 
-    
-class HashedMorganVectorizer(object):
-    def __init__(self, radius=2, bits=2048, augment=None):
-        self.bits = bits
-        self.radius = radius
-        self.augment = augment #Not used
-        self.dims = (bits,)
-        self.keys = None
-        
-    def transform_mol(self, mol):
-        """ transforms the molecule into a numpy bit array with the morgan bits
-
-            :parameter mol: the RDKit molecule to be transformed
-        """
-        fp = AllChem.GetMorganFingerprintAsBitVect(mol,self.radius,nBits=self.bits)
-        arr = np.zeros((self.bits,))
-        DataStructs.ConvertToNumpyArray(fp, arr)
-        return arr
-    
-    def transform(self, mols):
-        """Transforms a list or array of RDKit molecules into an array with the Morgan bits
-      
-        :parameter mols: list or array of RDKit molecules
-        """
-        
-        arr = np.zeros((len(mols), self.bits))
-        for i, mol in enumerate(mols):
-            arr[i,:] = self.transform_mol(mol)
-        return arr
-    
 
 class MorganDictVectorizer(object):
     def __init__(self, radius=2, augment=None):
@@ -267,5 +237,81 @@ class MorganDictVectorizer(object):
                 arr[i,:] = self.transform_mol(mol, misses=False)
             return arr
             
+
+class HashedVectorizer(object):
+    def __init__(self, nBits=2048, augment=None, **kwargs):
+        self.nBits = nBits
+        self.augment = augment #Not used
+        self.dims = (nBits,)
+        self.keys = None
+        self.kwargs=kwargs
+    
+    def get_fp(self,mol):
+        """Abstract method, must be overriden in subclass"""
+        raise NotImplementedError('Abstract class instantiated, subclass, and override get_fp')
+        
+    def transform_mol(self, mol):
+        """ transforms the molecule into a numpy bit array with the morgan bits
+
+            :parameter mol: the RDKit molecule to be transformed
+        """
+        fp = self.get_fp(mol)
+        arr = np.zeros((self.nBits,))
+        DataStructs.ConvertToNumpyArray(fp, arr)
+        return arr
+    
+    def transform(self, mols):
+        """Transforms a list or array of RDKit molecules into an array with the Morgan bits
+      
+        :parameter mols: list or array of RDKit molecules
+        """
+        
+        arr = np.zeros((len(mols), self.nBits))
+        for i, mol in enumerate(mols):
+            arr[i,:] = self.transform_mol(mol)
+        return arr
+
+
+class HashedAPVectorizer(HashedVectorizer):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+
+    def get_fp(self, mol):
+        return AllChem.GetHashedAtomPairFingerprint(mol,nBits=self.nBits, **self.kwargs)
+
+
+class HashedMorganVectorizer(HashedVectorizer):
+    def __init__(self, radius=2, **kwargs):
+        self.radius = radius
+        super().__init__(**kwargs)
+
+    def get_fp(self, mol):
+        return AllChem.GetMorganFingerprintAsBitVect(mol,self.radius,nBits=self.nBits, **self.kwargs)
+
+
+class HashedTorsionVectorizer(HashedVectorizer):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+
+    def get_fp(self, mol):
+        return AllChem.GetHashedTopologicalTorsionFingerprintAsBitVect(mol, nBits=self.nBits, **self.kwargs)
+
+
+#RDKit Fingerprints
+class HashedRDKVectorizer(HashedVectorizer):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+
+    def get_fp(self, mol):
+        return Chem.rdmolops.RDKFingerprint(mol, fpSize=self.nBits, **self.kwargs)
+
+
+#MACCS (Not a hashed fingerprint, but with fixed length
+#from rdkit.Chem import MACCSkeys
+#fps = [MACCSkeys.GenMACCSKeys(x) for x in ms]
+
+#Avalon
+
+#2D pharmacophore fingerprint
 
     
