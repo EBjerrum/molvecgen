@@ -1,2 +1,3 @@
-from .vectorizers import SmilesVectorizer
+from .vectorizers import SmilesVectorizer, ChemceptionVectorizer
 from .generators import HetSmilesGenerator, SmilesGenerator, Iterator
+from .generators import SmilesGenerator as ChemceptionGenerator

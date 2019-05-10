@@ -1,6 +1,7 @@
 #Experimental Class for Smiles Enumeration, Iterator and SmilesIterator adapted from Keras 1.2.2
 from rdkit import Chem
 import numpy as np
+import math
 
 class SmilesVectorizer(object):
     """SMILES vectorizer and devectorizer, with support for SMILES enumeration (atom order randomization)
@@ -175,6 +176,191 @@ class SmilesVectorizer(object):
     
 from rdkit import DataStructs
 from rdkit.Chem import AllChem
+
+
+class ChemceptionVectorizer(object):
+    """
+    Chemception Vectorizer turns RDKit molecules into 2D chemception "images" with embedded
+    molecular information in the different layers.
+    
+    Data augmentation is possible and controlled via the .augment property.
+    The RDKit molecules are rotated randomly in the drawing plane before vectorizaton.
+    If .flip is set to true they are also flipped in 50% of the cases. Should not be used
+    if theres embedded stereo information. Molecular coordinates are also randomly moved
+    0 to 0.5 units in the X and Y direction (jitter).
+    
+    The dimension of X and Y are int(self.embed*2/self.res) and the number of channels is 8
+
+    The channels contains 3 layers with z-scale atom embedding, 1 layer bond information,
+    and 4 layers with Hybridization, Gasteigercharge, Valence and Aromatic flag.
+
+
+    """
+    def __init__(self, embed=16.0, resolution = 0.5, augment=True, flip=True, jitter=0.5, rotation=180):
+        """
+        :parameter embed:  the size of the embedding array. The embedding is specified in coordinate units which is approximate 1 Aangstrom for RDKit
+        :parameter res: This is the resolution or the size of the "pixels" in coordinate space
+        :parameter augment: Do rotation, jitter and evt. flip on coordinates before embedding
+        :parameter jitter: maximum random movement of coords in X and Y dimensions
+        :parameter rotation: Angle in degrees that molecule will be rotated in X and Y plane before
+               embedding
+        :parameter flip: If True the molecule will be randomly flipped around X axis 50% of times
+                (Don't use if Stereo information is embedded).
+
+        """
+        self.embed = embed
+        self.res = resolution
+        self.augment=augment
+        self.flip = flip
+        self.jitter = jitter
+        self.rotation = rotation
+        self._xdim = self._ydim = int(self.embed*2/self.res) 
+        self._channels = 8
+        self.dims = (self._xdim, self._ydim, self._channels) #Tensorflow order, channels are last
+        self.z_scales = { 1: [0.91380303970722476, 0.73165158255080509, 0.57733314804364055],
+                         5: [0.30595181177678765, 1.0, 0.12627398479525687],
+                         6: [0.5188990175807231, 0.78421022815543329, 0.0],
+                         7: [1.0, 0.69228268136793891, 1.0],
+                         8: [0.8483958101521436, 0.385020123655062, 0.22145975047392397],
+                         9: [0.96509304017607156, 0.0, 0.063173404499183961],
+                         14: [0.0, 0.71343324836845667, 0.44224053276558339],
+                         15: [0.41652648238720696, 0.62420516558479067, 0.76653406760644893],
+                         16: [0.33207883139905292, 0.43675896202099707, 0.37174865102406474],
+                         17: [0.43492872745120104, 0.080933563161888766, 0.25506635487736889],
+                         34: [0.25220492897252711, 0.41968099329754543, 0.42430137548104002],
+                         35: [0.35428255473513803, 0.029790668511527674, 0.52407440196510457],
+                         53: [0.12908295522613494, 0.057208840097424385, 0.77529938134095022]}        
+                
+    def fit(self, mols, extra_pad = 5):
+        """To be done, it could be nice to be able to precalculate the approximate embedding from a dataset"""
+        print("TBD")
+        
+    def preprocess_mols(self, mols):
+        """Calculate GasteigerCharges and 2D coordinates for the molecules
+        
+        :parameter mols: RDKit molecules to be processed in a list or array
+        :returns: preprocessed RDKit molecules in a Numpy array
+        
+        """
+        mols_o = []
+        for i,mol in enumerate(mols):
+            cmol = Chem.Mol(mol.ToBinary())
+            cmol.ComputeGasteigerCharges()
+            AllChem.Compute2DCoords(cmol)
+            mols_o.append(cmol)
+        return np.array(mols_o)
+    
+    
+    def _rotate_coords(self, origin, points, angle):
+        """
+        Rotate coordinates counterclockwise with specified angle and origin.
+
+        :parameter origin: coordinate for rotation center
+        :parameter points: numpy array with 2D coordinates
+        :parameter angle: The rotation angle in degrees
+        :return: Rotated coordinates
+        """
+        ox, oy = origin
+
+        coords_o = np.zeros((points.shape[0], 2))
+
+        cosa = math.cos(math.radians(angle))
+        sina = math.sin(math.radians(angle))
+
+        coords_o[:,0] = ox + cosa * (points[:,0] - ox) - sina * (points[:,1] - oy)
+        coords_o[:,1] = oy + sina * (points[:,0] - ox) + cosa * (points[:,1] - oy)
+        return coords_o
+    
+        
+    def vectorize_mol(self, mol, augment=None):
+        """Vectorizes a single RDKit mol object into a 2D "image" numpy array
+
+            :parameter mol: RDKit mol with precomputed 2D coords and Gasteiger Charges
+            :parameter augment: Overrule objects .augment, useful for consistency in predictions
+        
+        """
+        coords = mol.GetConformer(0).GetPositions()
+
+        if augment is None:
+            augment = self.augment
+
+        if augment:
+            #Rotate + jitter + flip coords.
+            rot = np.random.random()*self.rotation
+            coords = self._rotate_coords((0,0), coords, rot)
+            
+            jitter_x = np.random.random()*2*self.jitter - self.jitter
+            jitter_y = np.random.random()*2*self.jitter - self.jitter
+            coords = coords + np.array([[jitter_x, jitter_y]])
+            
+            if self.flip:
+                flip_choice = np.random.random()
+                #print(flip_choice)
+                if flip_choice > 0.5:
+                    #print("Flip")
+                    coords = coords[:,::-1] #Flip around X-axis
+        
+        vect = np.zeros(self.dims, dtype='float32')
+        #Bonds first
+        for i,bond in enumerate(mol.GetBonds()):
+            #TODO Future: add stereo-info?
+            bondorder = bond.GetBondTypeAsDouble()
+            bidx = bond.GetBeginAtomIdx()
+            eidx = bond.GetEndAtomIdx()
+            bcoords = coords[bidx]
+            ecoords = coords[eidx]
+            frac = np.linspace(0,1,int(1/self.res*2)) #with a res of 0.5 this should be adequate#TODO implement automatic determination/better line drawing algoritm.
+            for f in frac:
+                c = (f*bcoords + (1-f)*ecoords)
+                idx = int(round((c[0] + self.embed)/self.res))
+                idy = int(round((c[1]+ self.embed)/self.res))
+                vect[ idx , idy ,0] = bondorder
+
+        #Atoms and properties
+        for i,atom in enumerate(mol.GetAtoms()):
+                idx = int(round((coords[i][0] + self.embed)/self.res))
+                idy = int(round((coords[i][1]+ self.embed)/self.res))
+                if (idx > vect.shape[0]) or (idy > vect.shape[1]):
+                    print("WARNING: atom outside embedding, consider increasing embedding")
+                    continue
+                else:
+                    scales = self.z_scales[ atom.GetAtomicNum() ]
+                    vect[ idx , idy, 1] = scales[0]
+                    vect[ idx , idy, 2] = scales[1]
+                    vect[ idx , idy, 3] = scales[2]
+                    hyptype = atom.GetHybridization().real
+                    vect[ idx , idy, 4] = hyptype
+                    charge = atom.GetProp("_GasteigerCharge")
+                    vect[ idx , idy, 5] = charge
+                    valence = atom.GetTotalValence()
+                    vect[ idx , idy, 6] = valence
+                    isarom = atom.GetIsAromatic()
+                    vect[ idx , idy, 7] = isarom
+
+        #Remove Nans if present
+        if np.sum(np.isnan(vect)) > 0:
+            vect[np.isnan(vect)] = 0
+            
+        return vect
+       
+    def transform(self, mols, augment=None):
+        """Batch vectorization of molecules 
+        
+        :parameter mols: RDKit mols with precomputed 2D coords and Gasteiger Charges
+        :parameter augment: boolean. Overrides objects .augment setting if not None
+        :returns: Numpy array with the chemception images. Shape [number_mols, xdim, ydim, channels]
+        
+        """
+        if len(mols.shape) > 1:
+            mols = mols.reshape(-1) #TODO: What if Pandas?
+            
+        mols_array =  np.zeros([len(mols)] + list(self.dims))
+        
+        for i,mol in enumerate(mols):
+            mols_array[i] = self.vectorize_mol(mol, augment = augment)
+            
+        return mols_array
+
 
 
 class MorganDictVectorizer(object):
