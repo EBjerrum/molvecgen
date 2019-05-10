@@ -194,7 +194,7 @@ class MorganDictVectorizer(object):
         self.keys= np.array(keys)
         self.dims = len(self.keys)
         
-    def transform_mol(self, mol, misses=False):
+    def transform_mol(self, mol, misses=False, binary=False):
         """ transforms the mol into a dense array using the fitted keys as index
         
             :parameter mol: the RDKit molecule to be transformed
@@ -204,6 +204,9 @@ class MorganDictVectorizer(object):
         #Get fingerprint as a dictionary
         fp = AllChem.GetMorganFingerprint(mol,self.radius)
         fp_d = fp.GetNonzeroElements()
+        
+        if binary:
+            return np.isin(self.keys, list(fp_d.keys()), assume_unique=True)
         
         #Prepare the array, and set the values
         #TODO is there a way to vectorize and speed up this?
@@ -220,14 +223,21 @@ class MorganDictVectorizer(object):
         else:
             return arr
     
-    def transform(self, mols, misses=False):
+    def transform(self, mols, misses=False, binary=False):
         """Transforms a list or array of RDKit molecules into a dense array using the key dictionary (see .fit())
         
         :parameter mols: list or array of RDKit molecules
         :parameter misses: Wheter to return the number of key misses for each molecule
+        :parameter binary: only binary bits, ignores misses but is faster
         """
         arr = np.zeros((len(mols), self.dims))
-        if misses:
+        
+        if binary:
+            for i, mol in enumerate(mols):
+                arr[i,:] = self.transform_mol(mol, binary=True)
+            return arr
+        
+        elif misses:
             _misses = np.zeros((len(mols),1))
             for i, mol in enumerate(mols):
                 arr[i,:], _misses[i] = self.transform_mol(mol, misses=misses)
