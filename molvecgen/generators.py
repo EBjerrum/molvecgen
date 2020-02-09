@@ -1,5 +1,78 @@
 import numpy as np
 import threading
+import math as m
+
+class Sequence(object):
+    """Base object for fitting to a sequence of data, such as a dataset. 
+    The abstract method `__getitem__` should be overridden and should return a complete batch,
+    contained in a tuple.
+    The mini-batches are chosen sequentially from an index list that are reshuffled on each epoch.
+
+    Notes:
+    `Sequence` are a safer way to do multiprocessing. This structure guarantees
+    that the network will only train once
+    on each sample per epoch which is not the case with generators.
+    """
+
+    def __init__(self, x, y, vectorizer=None, batch_size=32):
+        if y is not None and len(x) != len(y):
+            raise ValueError('X (features) and y (labels) '
+                                'should have the same length. '
+                                'Found: X.shape = %s, y.shape = %s' %
+                                (np.asarray(x).shape, np.asarray(y).shape))
+
+        self.x = np.asarray(x)
+
+        if y is not None:
+            self.y = np.asarray(y)
+        else:
+            self.y = None
+
+        self.vectorizer = vectorizer
+        self.batch_size = batch_size
+        self._shuffle_index()      
+
+    def __getitem__(self, index):
+        """Gets batch at position `index`.
+        Arguments:
+            index: position of the batch in the Sequence.
+        Returns:
+            A batch
+        """
+        raise NotImplementedError
+
+    def __len__(self):
+        """Number of batch in the Sequence.
+        Returns:
+            The number of batches in the Sequence.
+        """
+        l =  m.ceil(len(self.x) / self.batch_size)
+        l_last = len(self.x)%l
+        if (l_last > 0) and (l_last < self.batch_size/4):
+            print("Last batch will be %i samples which is significantly lower than intended %i. This can lead to unstable training."%(l_last, self.batch_size))
+        return l
+
+    def __iter__(self):
+        """Create a generator that iterate over the Sequence."""
+        for item in (self[i] for i in range(len(self))):
+            yield item    
+
+    def _shuffle_index(self):
+        """Method that creates/reshuffles the index for creation 
+        of the mini-batches in a random fashion"""
+        self.index = np.random.permutation(len(self.x))
+
+    def get_samples_idx(self, idx):
+        """Get the indices of the samples, from a given minibatch index"""
+
+        sample_idxs = self.index[idx * self.batch_size:(idx + 1) * self.batch_size]
+        return sample_idxs
+
+    def on_epoch_end(self):
+        """Method called at the end of every epoch. Reshuffles the index to
+        create randomly selected mini-batches.
+        """
+        self._shuffle_index()
 
 class Iterator(object):
     """Abstract base class for data iterators.
@@ -53,6 +126,21 @@ class Iterator(object):
 
     def __next__(self, *args, **kwargs):
         return self.next(*args, **kwargs)
+
+
+class SmilesSequence(Sequence):
+    """Sequence yielding vectorized SMILES.
+    Initialize with X, y and a vectorizer, implementing a batch_wise transform methods"""
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+    def __getitem__(self, idx):
+        """Returns the vectorized samples."""
+        samples = self.get_samples_idx(idx)
+        batch_x = self.x[samples]
+        batch_x = self.vectorizer.transform(batch_x)
+        batch_y = self.y[samples]
+        return (batch_x, batch_y)
 
 class SmilesGenerator(Iterator):
     """Iterator yielding data from a SMILES array.
@@ -108,9 +196,7 @@ class SmilesGenerator(Iterator):
             return batch_x
         batch_y = self.y[index_array]
         return batch_x, batch_y
-    
-    
-    
+        
     
 class HetSmilesGenerator(SmilesGenerator):
     """Hetero (maybe) generator class, for use to train the autoencoder.
