@@ -16,7 +16,7 @@ class SmilesVectorizer(object):
     :parameter canonical: use canonical SMILES during transform (overrides enum)
     :parameter binary: Use RDKit binary strings instead of molecule objects
     """
-    def __init__(self, charset = '@C)(=cOn1S2/H[N]\\', pad=5, maxlength=120, leftpad=True, isomericSmiles=True, augment=True, canonical=False, startchar = '^', endchar = '$', unknownchar = '?', binary=False):
+    def __init__(self, charset = '@C)(=cOn1S2/H[N]\\', pad=10, maxlength=120, leftpad=True, isomericSmiles=True, augment=True, canonical=False, startchar = '^', endchar = '$', unknownchar = '?', binary=False):
         #Special Characters
         self.startchar = startchar
         self.endchar = endchar
